@@ -169,13 +169,53 @@ function App() {
 
     speak(`Initiating transmission to ${emailData.to}. Routing through Google secure servers.`);
 
-    // Simulate API call for now, but ready for real Google/Supabase Edge function
-    setTimeout(() => {
-      speak("Transmission successful. The message has been encrypted and sent.");
-      setActivePanel(null);
-      setEmailData({ to: '', subject: '', body: '' });
-    }, 2000);
+    // Try Gmail API if user has Google provider token
+    if (providerToken) {
+      try {
+        // Build RFC 2822 message
+        const subject = emailData.subject || '(No Subject)';
+        const rawMessage = [
+          `To: ${emailData.to}`,
+          `Subject: ${subject}`,
+          `Content-Type: text/plain; charset=utf-8`,
+          ``,
+          emailData.body
+        ].join('\r\n');
+        const encodedMessage = btoa(unescape(encodeURIComponent(rawMessage)))
+          .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+        const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${providerToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ raw: encodedMessage }),
+        });
+
+        if (res.ok) {
+          speak("Transmission successful, sir. Message delivered via Google secure servers.");
+          setActivePanel(null);
+          setEmailData({ to: '', subject: '', body: '' });
+          return;
+        } else {
+          const err = await res.json();
+          console.warn('Gmail API error:', err);
+          // Fall through to mailto fallback
+        }
+      } catch (e) {
+        console.warn('Gmail API failed, falling back to mailto:', e);
+      }
+    }
+
+    // Fallback: open Gmail compose in new tab
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(emailData.to)}&su=${encodeURIComponent(emailData.subject || '')}&body=${encodeURIComponent(emailData.body)}`;
+    window.open(gmailUrl, '_blank');
+    speak("Opening Gmail compose window, sir. Please review and send from there.");
+    setActivePanel(null);
+    setEmailData({ to: '', subject: '', body: '' });
   };
+
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
