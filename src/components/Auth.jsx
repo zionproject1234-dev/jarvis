@@ -11,6 +11,26 @@ export default function Auth() {
     const [isSignUp, setIsSignUp] = useState(false);
     const [errorMsg, setErrorMsg] = useState(null);
 
+    const getFriendlyError = (message) => {
+        if (!message) return 'An unknown error occurred. Please try again.';
+        const msg = message.toLowerCase();
+        if (msg.includes('invalid login credentials') || msg.includes('invalid email or password'))
+            return 'Incorrect email or passcode. Please try again.';
+        if (msg.includes('email not confirmed'))
+            return 'Email not verified. Please check your inbox and click the confirmation link.';
+        if (msg.includes('user already registered') || msg.includes('already been registered'))
+            return 'This email is already registered. Try logging in instead.';
+        if (msg.includes('password should be at least'))
+            return 'Passcode must be at least 6 characters.';
+        if (msg.includes('invalid api') || msg.includes('apikey') || msg.includes('api key'))
+            return 'System configuration error. Please contact the administrator.';
+        if (msg.includes('rate limit') || msg.includes('too many requests'))
+            return 'Too many attempts. Please wait a moment and try again.';
+        if (msg.includes('network') || msg.includes('fetch'))
+            return 'Network error. Please check your connection.';
+        return message; // show raw only as last resort
+    };
+
     const handleGoogleLogin = async () => {
         setLoading(true);
         setErrorMsg(null);
@@ -22,13 +42,13 @@ export default function Auth() {
                     scopes: 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events',
                     queryParams: {
                         access_type: 'offline',
-                        prompt: 'consent', // Always re-prompt to guarantee calendar scope granted
+                        prompt: 'consent',
                     }
                 }
             });
             if (error) throw error;
         } catch (error) {
-            setErrorMsg(error.message);
+            setErrorMsg(getFriendlyError(error.message));
         } finally {
             setLoading(false);
         }
@@ -55,7 +75,7 @@ export default function Auth() {
                 if (error) throw error;
             }
         } catch (error) {
-            setErrorMsg(error.message);
+            setErrorMsg(getFriendlyError(error.message));
         } finally {
             setLoading(false);
         }

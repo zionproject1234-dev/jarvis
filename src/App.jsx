@@ -30,7 +30,7 @@ function App() {
   ]);
   const [tasks, setTasks] = useState([]);
   const [metrics, setMetrics] = useState({ cpu: 0, ram: 0, temp: 45 });
-  const [youtubeId, setYoutubeId] = useState(null);
+  const [youtubeQuery, setYoutubeQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [reminders, setReminders] = useState([]);
   const [providerToken, setProviderToken] = useState(null); // Google OAuth access token
@@ -398,14 +398,40 @@ function App() {
       let localActionTriggered = false;
 
       // Handle local system protocols first (immediate UI feedback)
-      if (lowerInput.includes("play") && (lowerInput.includes("youtube") || lowerInput.includes("video") || lowerInput.includes("song"))) {
-        const videoQuery = lowerInput.replace("play", "").replace("on youtube", "").replace("video", "").replace("song", "").trim();
-        response = `Searching YouTube for "${videoQuery}" and preparing the Media Bay, sir.`;
-        // In a real app, we'd use YouTube Search API here to get the ID. 
-        // For now, we'll simulate finding one or searching.
-        setYoutubeId('dQw4w9WgXcQ'); // Default placeholder or we could search
+      if (lowerInput.includes("play") || (lowerInput.includes("youtube") && lowerInput.includes("search"))) {
+        // Extract the song/video query
+        let videoQuery = textInput
+          .replace(/play\s*/i, '')
+          .replace(/on youtube/i, '')
+          .replace(/youtube/i, '')
+          .replace(/search for/i, '')
+          .replace(/song/i, '')
+          .trim();
+        if (!videoQuery) videoQuery = 'top music';
+
+        response = `Accessing neural index for "${videoQuery}". Locating the optimal stream, sir.`;
         setActivePanel('youtube');
         localActionTriggered = true;
+
+        // Ask Gemini AI to find the exact YouTube video ID
+        try {
+          const idPrompt = `You are a YouTube video database. The user wants to play: "${videoQuery}".
+Return ONLY the 11-character YouTube video ID (like dQw4w9WgXcQ) for the most popular/official version of this song or video.
+Return NOTHING else — no explanation, no punctuation, just the 11-character ID.`;
+          const idResult = await model.generateContent(idPrompt);
+          const rawId = idResult.response.text().trim().replace(/[^a-zA-Z0-9_-]/g, '');
+          if (rawId && rawId.length === 11) {
+            setYoutubeQuery(rawId); // This is a valid video ID — will embed directly
+            speak(`Streaming "${videoQuery}" in the Media Bay, sir.`, fromVoice);
+          } else {
+            // Fallback: store the query for manual search
+            setYoutubeQuery(videoQuery);
+          }
+        } catch {
+          // Fallback: store query so user can search manually
+          setYoutubeQuery(videoQuery);
+        }
+
       } else if (lowerInput.includes("search") || lowerInput.includes("google")) {
         const query = lowerInput.replace("search", "").replace("google", "").replace("for", "").trim();
         response = `Executing global search for "${query}". Accessing Google secure indices.`;
@@ -812,33 +838,105 @@ function App() {
             </motion.div>
           )}
 
-          {activePanel === 'youtube' && (
-            <motion.div
-              initial={{ opacity: 0, x: 50 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 50 }}
-              className="action-panel"
-            >
-              <div className="panel-header">
-                <h2>MEDIA BAY: YOUTUBE</h2>
-                <X size={24} className="close-btn" onClick={() => setActivePanel(null)} style={{ cursor: 'pointer' }} />
-              </div>
-              <div style={{ flex: 1, background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
-                <iframe
-                  width="100%"
-                  height="100%"
-                  src={`https://www.youtube.com/embed/${youtubeId}?autoplay=1`}
-                  title="YouTube video player"
-                  frameBorder="0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                ></iframe>
-              </div>
-              <div style={{ marginTop: '10px', fontSize: '0.8rem', color: 'var(--neon-cyan)' }}>
-                SYSTEM STATUS: STREAMING ONLINE
-              </div>
-            </motion.div>
-          )}
+          {activePanel === 'youtube' && (() => {
+            // Parse YouTube video ID from URL or plain ID
+            const parseYouTubeId = (input) => {
+              if (!input) return null;
+              const patterns = [
+                /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
+                /^([a-zA-Z0-9_-]{11})$/ // plain video ID
+              ];
+              for (const p of patterns) {
+                const m = input.match(p);
+                if (m) return m[1];
+              }
+              return null;
+            };
+            const videoId = parseYouTubeId(youtubeQuery);
+
+            return (
+              <motion.div
+                initial={{ opacity: 0, x: 50 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 50 }}
+                className="action-panel"
+              >
+                <div className="panel-header">
+                  <h2>MEDIA BAY: YOUTUBE</h2>
+                  <X size={24} className="close-btn" onClick={() => setActivePanel(null)} style={{ cursor: 'pointer' }} />
+                </div>
+
+                {/* Search / URL input bar */}
+                <div style={{ display: 'flex', gap: '8px', padding: '10px 0', borderBottom: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="Paste YouTube URL or video ID here..."
+                    id="yt-url-input"
+                    defaultValue={youtubeQuery}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        setYoutubeQuery(e.target.value.trim());
+                      }
+                    }}
+                    style={{ flex: 1, minWidth: '200px' }}
+                  />
+                  <button
+                    className="action-btn"
+                    style={{ padding: '0 12px', whiteSpace: 'nowrap' }}
+                    onClick={() => {
+                      const val = document.getElementById('yt-url-input')?.value.trim();
+                      if (val) setYoutubeQuery(val);
+                    }}
+                  >▶ LOAD</button>
+                  <button
+                    className="action-btn"
+                    style={{ padding: '0 12px', whiteSpace: 'nowrap', background: 'rgba(255,0,0,0.15)', borderColor: 'rgba(255,0,0,0.5)' }}
+                    onClick={() => window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(youtubeQuery || '')}`, '_blank')}
+                  >🔍 SEARCH YOUTUBE</button>
+                </div>
+
+                <div style={{ flex: 1, background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
+                  {videoId ? (
+                    <iframe
+                      key={videoId}
+                      width="100%"
+                      height="100%"
+                      src={`https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0`}
+                      title="YouTube video player"
+                      frameBorder="0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    ></iframe>
+                  ) : (
+                    <div style={{ color: 'var(--neon-cyan)', fontFamily: 'Orbitron', fontSize: '0.85rem', textAlign: 'center', opacity: 0.8, padding: '20px' }}>
+                      <div style={{ fontSize: '2.5rem', marginBottom: '15px' }}>▶</div>
+                      <div style={{ marginBottom: '10px' }}>
+                        {youtubeQuery ? `Searching for: "${youtubeQuery}"` : 'No video loaded'}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', marginBottom: '15px' }}>
+                        1. Click SEARCH YOUTUBE to find your video<br />
+                        2. Copy the video URL from YouTube<br />
+                        3. Paste it above and click LOAD
+                      </div>
+                      <button
+                        className="action-btn"
+                        onClick={() => window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(youtubeQuery || 'music')}`, '_blank')}
+                        style={{ fontSize: '0.75rem' }}
+                      >
+                        🔍 Open YouTube Search
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div style={{ marginTop: '10px', fontSize: '0.75rem', color: 'var(--neon-cyan)', display: 'flex', justifyContent: 'space-between' }}>
+                  <span>SYSTEM STATUS: {videoId ? '● STREAMING' : '○ STANDBY'}</span>
+                  {videoId && <span style={{ color: 'var(--text-dim)' }}>ID: {videoId}</span>}
+                </div>
+
+              </motion.div>
+            )
+          })()}
 
           {activePanel === 'search' && (
             <motion.div
